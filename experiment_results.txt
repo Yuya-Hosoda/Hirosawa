@@ -1,0 +1,74 @@
+========================================================================
+  Battery-Constrained Multi-Agent Path Finding for MoMo5
+  Reproduction of: Hirosawa (2025) Bachelor's Thesis
+========================================================================
+========================================================================
+EXPERIMENT 1: Safety Filter Verification (Section 5.2)
+========================================================================
+
+Case                                Status   S1   S2     b_goal    b_min  Chrg   Rot      ms
+--------------------------------------------------------------------------------------------
+Unreachable (no CS)                 No sol   --   --         --       --    --    --    8.6
+Boundary reachable (d=35)           Found    OK   OK      15.00    10.00     0     0    9.4
+Boundary (d=40, limit=)             Found    OK   OK      10.00    10.00     0     0    9.2
+Unreachable (d=45)                  No sol   --   --         --       --    --    --    8.5
+Charge required (via CS)            Found    OK   OK      20.00    10.00     1     0   42.7
+Goal is CS                          Found    OK   OK      10.00    10.00     0     0   18.1
+L-shape with rotation               Found    OK   OK     197.50    10.00     0     5    9.6
+Cutoff (tiny budget)                Cutoff   --   --         --       --    --    --   17.6
+
+========================================================================
+EXPERIMENT 2: SoC Discretization Granularity (Section 5.3)
+========================================================================
+
+--- Case A: Boundary condition (d=35, b=190) ---
+L_SoC    Status   Safety         ms
+------------------------------------
+10       Found    OK           9.7
+20       Found    OK           9.4
+40       Found    OK          25.7
+100      Found    OK           9.8
+
+--- Case B: Charge required (d=40, CS at (25,5), b=150) ---
+L_SoC    Status   Safety     Chrg  PathLen       ms
+--------------------------------------------------------
+10       No sol   --           --       --   465.4
+20       Found    OK            1       42   161.7
+40       Found    OK            1       42    19.6
+100      Found    OK            1       42    19.3
+
+========================================================================
+EXPERIMENT 3: CS Selection Strategy Comparison (Section 5.4)
+========================================================================
+
+  Running: 2 agents, proposed, 10 seeds...
+    Done in 15.2s — mean tasks: 124.0
+
+  Running: 2 agents, nearest, 10 seeds...
+    Done in 14.4s — mean tasks: 120.0
+
+  Running: 3 agents, proposed, 10 seeds...
+    Done in 24.5s — mean tasks: 182.2
+
+  Running: 3 agents, nearest, 10 seeds...
+    Done in 22.4s — mean tasks: 178.3
+
+========================================================================
+Table 5.7: CS Selection Strategy Comparison
+========================================================================
+Agents   Strategy         Mean      Std    Min    Max    Improve
+------------------------------------------------------------
+2        proposed        124.0      5.1    114    131      +3.3%
+2        nearest         120.0      4.5    115    127           
+3        proposed        182.2      5.7    173    192      +2.2%
+3        nearest         178.3      7.7    161    187           
+
+========================================================================
+Table 5.8: Average CS Queue Length
+========================================================================
+Agents       proposed      nearest
+------------------------------------
+2                0.29         0.30
+3                0.44         0.46
+
+All requested experiments completed.
