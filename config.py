@@ -2,6 +2,7 @@
 Configuration parameters for the Battery-Constrained MAPF system.
 Based on: Hirosawa (2025), Table 5.2 and Chapter 4 equations.
 """
+import math
 from dataclasses import dataclass
 
 
@@ -15,7 +16,7 @@ class SimConfig:
     battery_max: float = 2000.0
     energy_move: float = 5.0
     energy_wait: float = 0.0
-    energy_rotate: float = 0.5
+    energy_rotate: float = 0.1
 
     # Piecewise-linear charging rates
     charge_rate_fast: float = 8.0     # SoC 0–40%
@@ -46,6 +47,7 @@ class SimConfig:
     ll_max_expansions: int = 20000
     ll_max_generated: int = 50000
     goal_min_battery: float = 10.0
+    disable_occupancy_check: bool = False
 
     # --- High-Level Search (ECBS) ---
     hl_weight: float = 1.2
@@ -90,9 +92,9 @@ class SimConfig:
         else:
             return self.charge_rate_slow
 
-    def compute_charge_time(self, b_start: float, b_target: float) -> float:
+    def compute_charge_time(self, b_start: float, b_target: float) -> int:
         if b_target <= b_start:
-            return 0.0
+            return 0
         b_target = min(b_target, self.battery_max)
         t = 0.0
         b = b_start
@@ -104,4 +106,33 @@ class SimConfig:
             se = min(b_target, bh); t += (se - b) / self.charge_rate_medium; b = se
         if b < self.battery_max and b_target > b:
             se = min(b_target, self.battery_max); t += (se - b) / self.charge_rate_slow; b = se
-        return t
+        return math.ceil(t)
+
+    def compute_battery_after_charge(self, b_start: float, charge_ticks: int) -> float:
+        """Return the real-valued battery after an integer number of charge ticks.
+
+        Charging is integrated segment-by-segment across the 40% and 80% SoC
+        boundaries.  This mirrors the specification's execution model: a
+        ceil-rounded charge duration may slightly overshoot the requested
+        target, but never beyond ``battery_max``.
+        """
+        b = min(max(b_start, 0.0), self.battery_max)
+        remaining = float(max(0, charge_ticks))
+        boundaries = (
+            self.battery_max * self.charge_soc_boundary_low,
+            self.battery_max * self.charge_soc_boundary_high,
+            self.battery_max,
+        )
+
+        for upper in boundaries:
+            if remaining <= 0 or b >= self.battery_max:
+                break
+            if b >= upper:
+                continue
+            rate = self.charge_rate_at(b)
+            time_to_boundary = (upper - b) / rate
+            dt = min(remaining, time_to_boundary)
+            b += rate * dt
+            remaining -= dt
+
+        return min(b, self.battery_max)

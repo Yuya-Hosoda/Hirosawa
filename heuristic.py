@@ -18,11 +18,14 @@ class EnergyAwareHeuristic:
     """
 
     def __init__(self, grid_map: GridMap, goal_x: int, goal_y: int,
-                 config: SimConfig):
+                 config: SimConfig, min_goal_battery: float | None = None):
         self.grid_map = grid_map
         self.goal_x = goal_x
         self.goal_y = goal_y
         self.config = config
+        self.min_goal_battery = (
+            config.goal_min_battery if min_goal_battery is None else min_goal_battery
+        )
 
         # Precompute BFS distances from goal (Eq. 4.35)
         self.dist_to_goal = grid_map.bfs_distance(
@@ -61,7 +64,7 @@ class EnergyAwareHeuristic:
 
         t_goal = d_goal * cfg.cost_move        # Eq. 4.35
         e_goal = d_goal * cfg.energy_move      # Eq. 4.36
-        e_need = e_goal + cfg.goal_min_battery  # Eq. 4.39
+        e_need = e_goal + self.min_goal_battery  # Eq. 4.39
 
         # h_direct (Eq. 4.40)
         h_direct = t_goal if b_eff >= e_need else float('inf')

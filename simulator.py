@@ -141,10 +141,16 @@ class Simulator:
             agent.x, agent.y, agent.z,
             agent.battery, 0, gx, gy,
             self.config, constraints=[], reservation_table=res,
-            heuristic_obj=self.heuristic_cache[key])
+            heuristic_obj=self.heuristic_cache[key],
+            min_goal_battery=(
+                self.config.battery_max * self.config.charge_target_threshold
+                if agent.current_goal_is_cs else self.config.goal_min_battery
+            ))
         if path is not None:
             agent.planned_path = path
-            agent.path_index = 0
+            # The first reconstructed element is the already-occupied start
+            # state at t=0, so execution begins at the first real transition.
+            agent.path_index = 1 if len(path) > 1 else 0
 
     def _execute_step(self, agent: Agent):
         # Currently charging
