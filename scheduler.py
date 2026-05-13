@@ -82,10 +82,10 @@ class BFSCache:
 
 
 def compute_urgency(soc: float) -> float:
-    if soc < 0.10: return 10.0
-    if soc < 0.20: return 5.0
-    if soc < 0.30: return 2.0
-    if soc < 0.50: return 1.0
+    """Urgency coefficient γ_urg from spec §11.1."""
+    if soc < 0.10: return 5.0
+    if soc < 0.20: return 3.0
+    if soc < 0.30: return 1.5
     return 0.0
 
 
@@ -143,13 +143,21 @@ def select_cs_nearest(
     agent: Agent, grid_map: GridMap, config: SimConfig,
     bfs_cache: BFSCache,
 ) -> Optional[Tuple[int, int]]:
-    """Nearest CS selection (baseline). Ignores queue state."""
+    """Nearest reachable CS (baseline) — spec §11.3.
+
+    Reachable = BFS distance < ∞ and the agent can arrive with non-negative
+    battery (b - d_cs * energy_move ≥ 0).
+    """
     if not grid_map.cs_positions:
         return None
     dist_map = bfs_cache.get_distance_from(agent.x, agent.y)
     best_d, best_cs = float('inf'), None
     for cs_pos in grid_map.cs_positions:
         d = dist_map[cs_pos[1], cs_pos[0]]
+        if d == np.inf:
+            continue
+        if agent.battery - d * config.energy_move < 0:
+            continue
         if d < best_d:
             best_d = d
             best_cs = cs_pos

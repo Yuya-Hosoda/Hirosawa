@@ -50,7 +50,7 @@ class SimConfig:
     disable_occupancy_check: bool = False
 
     # --- High-Level Search (ECBS) ---
-    hl_weight: float = 1.2
+    hl_weight: float = 1.5
     hl_max_ct_nodes: int = 5000
 
     # --- Scheduler ---
@@ -60,12 +60,13 @@ class SimConfig:
     emergency_l4_soc: float = 0.02
     emergency_l3_soc: float = 0.04
 
-    # CS selection weights (Eq. 4.57)
+    # CS selection weights (specification §11.1 initial values).
+    # b_risk = 0.10 * B_MAX = 200, kappa = 10.0, w_queue = 1.0.
     w_end: float = 1.0
     w_travel: float = 0.5
-    w_queue: float = 2.0
-    risk_threshold: float = 100.0
-    risk_coefficient: float = 5.0
+    w_queue: float = 1.0
+    risk_threshold: float = 200.0
+    risk_coefficient: float = 10.0
     charge_buffer_time: float = 5.0
 
     @property
