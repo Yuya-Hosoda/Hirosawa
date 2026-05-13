@@ -85,10 +85,7 @@ def ecbs_search(
     root_constraints: List[Constraint] = []
 
     # Build reservation table including existing reservations
-    res_table = ReservationTable()
-    if existing_reservations:
-        res_table.vertex_reservations = dict(existing_reservations.vertex_reservations)
-        res_table.edge_reservations = set(existing_reservations.edge_reservations)
+    res_table = existing_reservations.clone() if existing_reservations else ReservationTable()
 
     for agent in agents:
         if agent.current_goal is None:
@@ -112,6 +109,10 @@ def ecbs_search(
             constraints=[],
             reservation_table=res_table,
             heuristic_obj=heuristic_cache[h_key],
+            min_goal_battery=(
+                config.battery_max * config.charge_target_threshold
+                if agent.current_goal_is_cs else config.goal_min_battery
+            ),
         )
 
         if path is None:
@@ -119,9 +120,6 @@ def ecbs_search(
             root_paths[agent.agent_id] = []
         else:
             root_paths[agent.agent_id] = path
-            # Add this agent's path to reservations for subsequent agents
-            positions = [(s.state.x, s.state.y, s.state.t) for s in path]
-            res_table.add_path(agent.agent_id, positions)
 
     # Check if all agents have valid paths
     for agent in agents:
@@ -139,6 +137,10 @@ def ecbs_search(
                 constraints=[],
                 reservation_table=None,
                 heuristic_obj=heuristic_cache.get((gx, gy)),
+                min_goal_battery=(
+                    config.battery_max * config.charge_target_threshold
+                    if agent.current_goal_is_cs else config.goal_min_battery
+                ),
             )
             if path is not None:
                 root_paths[agent.agent_id] = path
@@ -209,18 +211,24 @@ def ecbs_search(
 
         # Generate child CT nodes (branch on the conflict)
         for constrained_agent in [conflict.agent_i, conflict.agent_j]:
-            # Create new constraint
-            if conflict.conflict_type == 'vertex' or conflict.conflict_type == 'cs_capacity':
+            # Create an agent-specific constraint from the conflict.  For
+            # distance-based vertex conflicts the two agents may be on different
+            # cells, so each branch forbids that agent's own center position.
+            if conflict.conflict_type in ('vertex', 'cs_capacity'):
+                if constrained_agent == conflict.agent_i:
+                    cx, cy = conflict.x, conflict.y
+                else:
+                    cx, cy = conflict.j_x, conflict.j_y
                 new_constraint = VertexConstraint(
-                    agent_id=constrained_agent,
-                    x=conflict.x, y=conflict.y, t=conflict.t
+                    agent_id=constrained_agent, x=cx, y=cy, t=conflict.t
                 )
             elif conflict.conflict_type == 'edge':
+                if constrained_agent == conflict.agent_i:
+                    x1, y1, x2, y2 = conflict.x, conflict.y, conflict.x2, conflict.y2
+                else:
+                    x1, y1, x2, y2 = conflict.j_x, conflict.j_y, conflict.j_x2, conflict.j_y2
                 new_constraint = EdgeConstraint(
-                    agent_id=constrained_agent,
-                    x1=conflict.x, y1=conflict.y,
-                    x2=conflict.x2, y2=conflict.y2,
-                    t=conflict.t
+                    agent_id=constrained_agent, x1=x1, y1=y1, x2=x2, y2=y2, t=conflict.t
                 )
             else:
                 continue
@@ -246,10 +254,7 @@ def ecbs_search(
                 )
 
             # Build reservation table from other agents' paths
-            child_res = ReservationTable()
-            if existing_reservations:
-                child_res.vertex_reservations = dict(existing_reservations.vertex_reservations)
-                child_res.edge_reservations = set(existing_reservations.edge_reservations)
+            child_res = existing_reservations.clone() if existing_reservations else ReservationTable()
 
             new_path = low_level_search(
                 grid_map=grid_map,
@@ -262,6 +267,10 @@ def ecbs_search(
                 constraints=child_constraints,
                 reservation_table=child_res,
                 heuristic_obj=heuristic_cache[h_key],
+                min_goal_battery=(
+                    config.battery_max * config.charge_target_threshold
+                    if agent.current_goal_is_cs else config.goal_min_battery
+                ),
             )
 
             if new_path is None:

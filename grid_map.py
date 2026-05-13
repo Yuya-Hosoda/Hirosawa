@@ -71,11 +71,14 @@ class GridMap:
 
     def bfs_distance(self, goal_x: int, goal_y: int,
                      agent_radius: int = 1) -> np.ndarray:
-        """BFS from goal to all reachable cells, considering agent radius.
-        Returns distance array (inf for unreachable cells).
-        Used for d_goal(v) in Eq. 4.35 and d_cs(v) in Eq. 4.34."""
+        """BFS from goal to all reachable cells at cell resolution.
+
+        The final specification defines the BFS heuristic maps without the
+        MoMo 3×3 footprint.  Footprint validity remains a low-level successor
+        filter, making these distances admissible lower bounds.
+        """
         dist = np.full((self.height, self.width), np.inf)
-        if not self.can_agent_occupy(goal_x, goal_y, agent_radius):
+        if not self.is_free(goal_x, goal_y):
             return dist
 
         dist[goal_y, goal_x] = 0
@@ -87,7 +90,7 @@ class GridMap:
                 nx, ny = x + dx, y + dy
                 if (self.is_in_bounds(nx, ny) and
                         dist[ny, nx] == np.inf and
-                        self.can_agent_occupy(nx, ny, agent_radius)):
+                        self.grid[ny, nx] != CELL_OBSTACLE):
                     dist[ny, nx] = dist[y, x] + 1
                     queue.append((nx, ny))
         return dist
@@ -99,7 +102,7 @@ class GridMap:
         queue = deque()
 
         for cx, cy in self.cs_positions:
-            if self.can_agent_occupy(cx, cy, agent_radius):
+            if self.is_free(cx, cy):
                 dist[cy, cx] = 0
                 queue.append((cx, cy))
 
@@ -109,7 +112,7 @@ class GridMap:
                 nx, ny = x + dx, y + dy
                 if (self.is_in_bounds(nx, ny) and
                         dist[ny, nx] == np.inf and
-                        self.can_agent_occupy(nx, ny, agent_radius)):
+                        self.grid[ny, nx] != CELL_OBSTACLE):
                     dist[ny, nx] = dist[y, x] + 1
                     queue.append((nx, ny))
         return dist
@@ -120,18 +123,20 @@ def create_scenario1() -> GridMap:
     CS dispersed across the map as in the paper."""
     gm = GridMap(30, 30)
 
-    # L-shaped obstacle
-    for x in range(10, 20):
-        for y in range(12, 18):
+    # L-shaped obstacle from specification_final.md.  The specification uses
+    # (y, x) coordinates; GridMap's public API uses (x, y), so the loops below
+    # intentionally transpose each listed cell.
+    for y in range(14, 17):
+        for x in range(8, 15):
             gm.set_obstacle(x, y)
-    for x in range(10, 15):
-        for y in range(8, 12):
+    for y in range(17, 22):
+        for x in range(8, 12):
             gm.set_obstacle(x, y)
 
-    # 3 CS matching Fig 5.1
-    gm.set_cs(15, 2, capacity=1)   # top-center
-    gm.set_cs(26, 14, capacity=1)  # right
-    gm.set_cs(14, 27, capacity=1)  # bottom-center
+    # 3 CS matching the final specification (given as (y, x) there).
+    gm.set_cs(15, 2, capacity=1)   # (y=2, x=15), top-center
+    gm.set_cs(22, 14, capacity=1)  # (y=14, x=22), right
+    gm.set_cs(14, 28, capacity=1)  # (y=28, x=14), bottom-center
 
     return gm
 

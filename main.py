@@ -47,7 +47,7 @@ def run_experiment1():
     print("-" * len(header))
 
     for name, sz, cs_list, start, goal, init_b, max_exp, max_gen in cases:
-        cfg = SimConfig()
+        cfg = SimConfig(disable_occupancy_check=True)
         cfg.ll_max_expansions = max_exp
         cfg.ll_max_generated = max_gen
 
@@ -92,7 +92,8 @@ def run_experiment2():
     print(f"{'L_SoC':<8s} {'Status':<8s} {'Safety':<8s} {'ms':>8s}")
     print("-" * 36)
     for lsoc in soc_levels:
-        cfg = SimConfig(soc_levels=lsoc, ll_max_expansions=50000, ll_max_generated=100000)
+        cfg = SimConfig(soc_levels=lsoc, ll_max_expansions=50000, ll_max_generated=100000,
+                        disable_occupancy_check=True)
         gm = create_empty_map(50, 50, [])
         t0 = time.time()
         path = low_level_search(gm, 0, 5, 5, 0, 190.0, 0, 40, 5, cfg)
@@ -108,7 +109,8 @@ def run_experiment2():
     print("-" * 56)
     for lsoc in soc_levels:
         limit = 100000 if lsoc <= 40 else 10000
-        cfg = SimConfig(soc_levels=lsoc, ll_max_expansions=limit, ll_max_generated=limit)
+        cfg = SimConfig(soc_levels=lsoc, ll_max_expansions=limit, ll_max_generated=limit,
+                        disable_occupancy_check=True)
         gm = create_empty_map(50, 50, [(25, 5)])
         t0 = time.time()
         path = low_level_search(gm, 0, 5, 5, 0, 150.0, 0, 45, 5, cfg)

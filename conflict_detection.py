@@ -13,16 +13,27 @@ from grid_map import GridMap
 
 @dataclass
 class Conflict:
-    """Detected conflict between two agents."""
+    """Detected conflict between two agents.
+
+    Vertex conflicts keep each agent's own position because the MoMo distance
+    predicate can report a collision even when the two centers occupy different
+    cells.  Edge conflicts likewise preserve both directed transitions so ECBS
+    can branch with agent-specific constraints.
+    """
     agent_i: int
     agent_j: int
     x: int
     y: int
     t: int
     conflict_type: str  # 'vertex', 'edge', 'cs_capacity'
-    # For edge conflicts
+    # agent_i position / transition
     x2: int = 0
     y2: int = 0
+    # agent_j position / transition
+    j_x: int = 0
+    j_y: int = 0
+    j_x2: int = 0
+    j_y2: int = 0
 
 
 def check_vertex_collision(x1: int, y1: int, x2: int, y2: int) -> bool:
@@ -92,7 +103,8 @@ def detect_conflicts(
                     conflicts.append(Conflict(
                         agent_i=ai, agent_j=aj,
                         x=pi[0], y=pi[1], t=t,
-                        conflict_type='vertex'
+                        conflict_type='vertex',
+                        j_x=pj[0], j_y=pj[1],
                     ))
                     break  # One conflict per pair per search
 
@@ -101,15 +113,17 @@ def detect_conflicts(
                     pi_next = _get_position_at(pos_i, t + 1, t_max)
                     pj_next = _get_position_at(pos_j, t + 1, t_max)
                     if pi_next and pj_next:
-                        # Check if agent_i at t+1 collides with agent_j at t
-                        if check_vertex_collision(pi_next[0], pi_next[1],
-                                                  pj[0], pj[1]):
-                            if (pi[0], pi[1]) != (pi_next[0], pi_next[1]):
+                        if (check_vertex_collision(pi_next[0], pi_next[1], pj[0], pj[1]) or
+                                check_vertex_collision(pj_next[0], pj_next[1], pi[0], pi[1])):
+                            if ((pi[0], pi[1]) != (pi_next[0], pi_next[1]) or
+                                    (pj[0], pj[1]) != (pj_next[0], pj_next[1])):
                                 conflicts.append(Conflict(
                                     agent_i=ai, agent_j=aj,
                                     x=pi[0], y=pi[1], t=t,
                                     conflict_type='edge',
-                                    x2=pi_next[0], y2=pi_next[1]
+                                    x2=pi_next[0], y2=pi_next[1],
+                                    j_x=pj[0], j_y=pj[1],
+                                    j_x2=pj_next[0], j_y2=pj_next[1],
                                 ))
                                 break
 
@@ -132,7 +146,8 @@ def detect_conflicts(
                     agent_i=occupants[0],
                     agent_j=occupants[1],
                     x=cs_pos[0], y=cs_pos[1], t=t,
-                    conflict_type='cs_capacity'
+                    conflict_type='cs_capacity',
+                    j_x=cs_pos[0], j_y=cs_pos[1],
                 ))
 
     return conflicts

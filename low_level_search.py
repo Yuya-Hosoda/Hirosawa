@@ -80,6 +80,22 @@ class RangeConstraint:
 Constraint = VertexConstraint | EdgeConstraint | RangeConstraint
 
 
+def _is_vertex_conflict(x1: int, y1: int, x2: int, y2: int) -> bool:
+    dx = abs(x1 - x2)
+    dy = abs(y1 - y2)
+    return max(dx, dy) <= 2 and dx + dy <= 3
+
+
+def _is_edge_conflict(
+    x1_t: int, y1_t: int, x1_t1: int, y1_t1: int,
+    x2_t: int, y2_t: int, x2_t1: int, y2_t1: int,
+) -> bool:
+    return (
+        _is_vertex_conflict(x1_t, y1_t, x2_t1, y2_t1) or
+        _is_vertex_conflict(x2_t, y2_t, x1_t1, y1_t1)
+    )
+
+
 class ConstraintTable:
     """Efficient lookup of constraints for a specific agent."""
 
@@ -118,6 +134,13 @@ class ReservationTable:
         # Time-indexed for fast lookup
         self._by_time: Dict[int, List[Tuple[int, int, int]]] = {}
 
+    def clone(self) -> "ReservationTable":
+        other = ReservationTable()
+        other.vertex_reservations = dict(self.vertex_reservations)
+        other.edge_reservations = set(self.edge_reservations)
+        other._by_time = {t: list(entries) for t, entries in self._by_time.items()}
+        return other
+
     def add_path(self, agent_id: int, path_positions: List[Tuple[int, int, int]]):
         """Add agent path as reservations. path_positions: list of (x, y, t)."""
         for x, y, t in path_positions:
@@ -128,8 +151,8 @@ class ReservationTable:
         for i in range(len(path_positions) - 1):
             x1, y1, t1 = path_positions[i]
             x2, y2, t2 = path_positions[i + 1]
-            if (x1, y1) != (x2, y2):
-                self.edge_reservations.add((x2, y2, x1, y1, t1))
+            if t2 == t1 + 1 and (x1, y1) != (x2, y2):
+                self.edge_reservations.add((x1, y1, x2, y2, t1))
 
     def is_reserved_vertex(self, x: int, y: int, t: int,
                            agent_radius: int = 1) -> bool:
@@ -138,16 +161,19 @@ class ReservationTable:
         if not entries:
             return False
         for rx, ry, aid in entries:
-            dx = abs(x - rx)
-            dy = abs(y - ry)
-            if max(dx, dy) <= 2 and dx + dy <= 3:
+            if _is_vertex_conflict(x, y, rx, ry):
                 return True
         return False
 
     def is_reserved_edge(self, x1: int, y1: int, x2: int, y2: int,
                          t: int, agent_radius: int = 1) -> bool:
-        """Check edge collision."""
-        return (x1, y1, x2, y2, t) in self.edge_reservations
+        """Check edge collision against reserved same-tick transitions."""
+        for ox1, oy1, ox2, oy2, ot in self.edge_reservations:
+            if ot != t:
+                continue
+            if _is_edge_conflict(x1, y1, x2, y2, ox1, oy1, ox2, oy2):
+                return True
+        return False
 
 
 def _get_strategic_charge_levels(b_current: float, config: SimConfig,
@@ -189,6 +215,8 @@ def low_level_search(
     constraints: Optional[List[Constraint]] = None,
     reservation_table: Optional[ReservationTable] = None,
     heuristic_obj: Optional[EnergyAwareHeuristic] = None,
+    min_goal_battery: Optional[float] = None,
+    disable_occupancy_check: Optional[bool] = None,
 ) -> Optional[List[PathStep]]:
     """Battery-constrained Weighted A* search — Algorithm 1.
 
@@ -197,11 +225,16 @@ def low_level_search(
     """
     if constraints is None:
         constraints = []
+    goal_min_battery = config.goal_min_battery if min_goal_battery is None else min_goal_battery
+    if disable_occupancy_check is None:
+        disable_occupancy_check = config.disable_occupancy_check
     ct = ConstraintTable(agent_id, constraints)
 
     # Build heuristic if not provided
-    if heuristic_obj is None:
-        heuristic_obj = EnergyAwareHeuristic(grid_map, goal_x, goal_y, config)
+    if heuristic_obj is None or heuristic_obj.min_goal_battery != goal_min_battery:
+        heuristic_obj = EnergyAwareHeuristic(
+            grid_map, goal_x, goal_y, config, min_goal_battery=goal_min_battery
+        )
 
     soc_delta = config.soc_delta
     w_ll = config.ll_weight
@@ -242,7 +275,7 @@ def low_level_search(
 
         # Goal check (Algorithm 1, line 14-15)
         if (node.x == goal_x and node.y == goal_y and
-                node.b >= config.goal_min_battery):
+                node.b >= goal_min_battery):
             return _reconstruct_path(node)
 
         # Closed check (line 17)
@@ -259,7 +292,10 @@ def low_level_search(
         move_dirs = _get_move_directions(node.z, L)
         for dx, dy, action in move_dirs:
             nx, ny = node.x + dx, node.y + dy
-            if not grid_map.can_agent_occupy(nx, ny, config.agent_radius):
+            if disable_occupancy_check:
+                if not grid_map.is_free(nx, ny):
+                    continue
+            elif not grid_map.can_agent_occupy(nx, ny, config.agent_radius):
                 continue
             new_b = node.b - config.energy_move
             if new_b < 0:
@@ -267,15 +303,16 @@ def low_level_search(
             new_t = node.t + int(config.cost_move)
             g_new = node.g + config.cost_move
 
-            # Constraint check
-            if ct.is_constrained_vertex(nx, ny, new_t):
-                continue
-            if ct.is_constrained_edge(node.x, node.y, nx, ny, node.t):
+            # Constraint and reservation checks for the full action interval.
+            if (ct.is_constrained_vertex(node.x, node.y, node.t) or
+                    ct.is_constrained_vertex(nx, ny, new_t) or
+                    ct.is_constrained_edge(node.x, node.y, nx, ny, node.t)):
                 continue
 
-            # Reservation check (for large agents)
             if reservation_table:
-                if reservation_table.is_reserved_vertex(nx, ny, new_t, config.agent_radius):
+                if (reservation_table.is_reserved_vertex(node.x, node.y, node.t, config.agent_radius) or
+                        reservation_table.is_reserved_vertex(nx, ny, new_t, config.agent_radius) or
+                        reservation_table.is_reserved_edge(node.x, node.y, nx, ny, node.t, config.agent_radius)):
                     continue
 
             successors.append((nx, ny, node.z, new_b, new_t, g_new, action))
@@ -340,7 +377,7 @@ def low_level_search(
                 node.b < config.battery_max):
             # Compute energy needed to reach goal from current position
             d_goal = heuristic_obj.dist_to_goal[node.y, node.x]
-            e_need = d_goal * config.energy_move + config.goal_min_battery if d_goal < float('inf') else config.battery_max
+            e_need = d_goal * config.energy_move + goal_min_battery if d_goal < float('inf') else config.battery_max
 
             charge_levels = _get_strategic_charge_levels(node.b, config, e_need)
 
@@ -352,7 +389,7 @@ def low_level_search(
                 dt_charge = config.compute_charge_time(node.b, target_b)
                 dt_charge_ticks = max(1, int(math.ceil(dt_charge)))
 
-                new_b_ch = min(config.battery_max, target_b)
+                new_b_ch = config.compute_battery_after_charge(node.b, dt_charge_ticks)
                 new_t_ch = node.t + dt_charge_ticks
                 g_ch = node.g + dt_charge_ticks
 
